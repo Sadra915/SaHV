@@ -2,83 +2,54 @@ import asyncio
 import aiohttp
 import time
 import json
-import statistics
+from datetime import datetime, timezone
 
-# آدرس سرور آزمایشی خودت
 URL = "https://shukshuk.co.il"
 
-TOTAL_REQUESTS = 80000
-CONCURRENCY = 20000
+async def main():
+    timeout = aiohttp.ClientTimeout(total=15)
 
-async def worker(session, semaphore, results):
-    async with semaphore:
+    headers = {
+        "User-Agent": "Rust-Warfare-LoadLab/1.0"
+    }
+
+    async with aiohttp.ClientSession(
+        timeout=timeout,
+        headers=headers
+    ) as session:
+
         start = time.perf_counter()
 
         try:
-            async with session.get(URL) as response:
-                await response.read()
+            async with session.get(
+                URL,
+                allow_redirects=False
+            ) as response:
 
-                latency = (time.perf_counter() - start) * 1000
+                elapsed = round(
+                    (time.perf_counter() - start) * 1000, 2
+                )
 
-                results.append({
+                report = {
+                    "target": URL,
+                    "timestamp": datetime.now(
+                        timezone.utc
+                    ).isoformat(),
                     "status": response.status,
-                    "latency": round(latency, 2),
-                    "success": 200 <= response.status < 400
-                })
+                    "latency_ms": elapsed,
+                    "server": response.headers.get("Server"),
+                    "cf_ray": response.headers.get("CF-Ray"),
+                    "retry_after": response.headers.get("Retry-After"),
+                    "location": response.headers.get("Location"),
+                    "content_type": response.headers.get("Content-Type")
+                }
 
-                print(f"[OK] {response.status} | {latency:.2f} ms")
+                print(json.dumps(report, indent=4))
 
-        except Exception as e:
-            results.append({
-                "success": False,
-                "error": str(e)
-            })
+                with open("report.json", "w") as f:
+                    json.dump(report, f, indent=4)
 
-            print(f"[ERROR] {e}")
-
-
-async def main():
-    print("=== RUST WARFARE LOADLAB ===")
-
-    results = []
-    semaphore = asyncio.Semaphore(CONCURRENCY)
-
-    timeout = aiohttp.ClientTimeout(total=10)
-
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        start = time.perf_counter()
-
-        tasks = [
-            worker(session, semaphore, results)
-            for _ in range(TOTAL_REQUESTS)
-        ]
-
-        await asyncio.gather(*tasks)
-
-        elapsed = time.perf_counter() - start
-
-    successful = [
-        x["latency"] for x in results
-        if x.get("success") and "latency" in x
-    ]
-
-    report = {
-        "target": URL,
-        "total": TOTAL_REQUESTS,
-        "successful": len(successful),
-        "failed": TOTAL_REQUESTS - len(successful),
-        "duration": round(elapsed, 2),
-        "average_latency": (
-            round(statistics.mean(successful), 2)
-            if successful else None
-        ),
-        "RPS": round(TOTAL_REQUESTS / elapsed, 2)
-    }
-
-    print(json.dumps(report, indent=4))
-
-    with open("report.json", "w") as f:
-        json.dump(report, f, indent=4)
-
+        except Exception as error:
+            print("Connection Error:", str(error))
 
 asyncio.run(main())
