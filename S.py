@@ -7,8 +7,8 @@ import statistics
 # آدرس سرور آزمایشی خودت
 URL = "https://shukshuk.co.il"
 
-TOTAL_REQUESTS = 800000
-CONCURRENCY = 200000
+TOTAL_REQUESTS = 80000
+CONCURRENCY = 20000
 
 async def worker(session, semaphore, results):
     async with semaphore:
